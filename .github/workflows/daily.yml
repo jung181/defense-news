@@ -15,28 +15,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: DEBUG - test other NAVER API HUB endpoints with same key
-        env:
-          NCP_APIHUB_CLIENT_ID: ${{ secrets.NCP_APIHUB_CLIENT_ID }}
-          NCP_APIHUB_CLIENT_SECRET: ${{ secrets.NCP_APIHUB_CLIENT_SECRET }}
-        run: |
-          python3 - <<'PYEOF'
-          import http.client, os, ssl, urllib.parse
-          cid = os.environ["NCP_APIHUB_CLIENT_ID"]
-          secret = os.environ["NCP_APIHUB_CLIENT_SECRET"]
-          headers = {"X-NCP-APIGW-API-KEY-ID": cid, "X-NCP-APIGW-API-KEY": secret}
-          for path, label in [
-              ("/search/v1/news?query=test&display=1", "뉴스(news)"),
-              ("/search/v1/blog?query=test&display=1", "블로그(blog)"),
-              ("/search/v1/webkr?query=test&display=1", "웹문서(webkr)"),
-          ]:
-              conn = http.client.HTTPSConnection("naverapihub.apigw.ntruss.com", timeout=20, context=ssl.create_default_context())
-              conn.request("GET", path, headers=headers)
-              resp = conn.getresponse()
-              body = resp.read().decode("utf-8", errors="replace")[:200]
-              print(f"[{label}] status={resp.status} body={body}")
-              conn.close()
-          PYEOF
       - name: Run collector
         env:
           NCP_APIHUB_CLIENT_ID: ${{ secrets.NCP_APIHUB_CLIENT_ID }}

@@ -31,7 +31,10 @@ HERE = Path(__file__).resolve().parent
 
 NAVER_URL = "https://naverapihub.apigw.ntruss.com/search/v1/news"
 NOTION_API = "https://api.notion.com/v1"
-NOTION_VERSION = "2022-06-28"
+# 2025-09-03부터 데이터베이스 쿼리/페이지 생성이 "데이터 소스" 단위로 바뀌었다.
+# (멀티 소스 데이터베이스에서는 구버전 /databases/{id}/query 가
+#  "Could not find database" 404를 반환할 수 있음 - 공식 마이그레이션 가이드 참고)
+NOTION_VERSION = "2025-09-03"
 
 # Notion 데이터베이스 속성 이름 (만들 때와 동일해야 함)
 P_TITLE = "제목"    # title
@@ -169,9 +172,22 @@ def notion_headers(token):
     return {"Authorization": f"Bearer {token}", "Notion-Version": NOTION_VERSION}
 
 
-def notion_exists(token, db_id, link):
+def notion_get_data_source_id(token, db_id):
+    """데이터베이스 ID로부터 실제 쿼리/생성에 쓸 데이터 소스 ID를 가져온다.
+
+    2025-09-03 API부터 데이터베이스는 하나 이상의 '데이터 소스'를 가지며,
+    쿼리와 페이지 생성은 데이터베이스 ID가 아니라 데이터 소스 ID를 사용해야 한다.
+    """
+    res = http_json(f"{NOTION_API}/databases/{db_id}", "GET", notion_headers(token))
+    sources = res.get("data_sources") or []
+    if not sources:
+        raise RuntimeError(f"데이터베이스 {db_id}에 데이터 소스가 없습니다: {res}")
+    return sources[0]["id"]
+
+
+def notion_exists(token, ds_id, link):
     body = {"filter": {"property": P_LINK, "url": {"equals": link}}, "page_size": 1}
-    res = http_json(f"{NOTION_API}/databases/{db_id}/query", "POST", notion_headers(token), body)
+    res = http_json(f"{NOTION_API}/data_sources/{ds_id}/query", "POST", notion_headers(token), body)
     return bool(res.get("results"))
 
 
@@ -179,7 +195,7 @@ def rt(text):
     return [{"type": "text", "text": {"content": text[:1900]}}]
 
 
-def notion_create(token, db_id, item):
+def notion_create(token, ds_id, item):
     props = {
         P_TITLE: {"title": rt(item["title"])},
         P_LINK: {"url": item["link"]},
@@ -187,17 +203,17 @@ def notion_create(token, db_id, item):
         P_FIELD: {"select": {"name": item["field"]}},
         P_QUERY: {"rich_text": rt(item["query"])},
     }
-    body = {"parent": {"database_id": db_id}, "properties": props}
+    body = {"parent": {"type": "data_source_id", "data_source_id": ds_id}, "properties": props}
     http_json(f"{NOTION_API}/pages", "POST", notion_headers(token), body)
 
 
-def notion_archive_older_than(token, db_id, days):
+def notion_archive_older_than(token, ds_id, days):
     """RETENTION_DAYS 지난 행을 보관(archive) 처리한다 (네이버 API HUB 약관 준수)."""
     cutoff = (datetime.now(KST) - timedelta(days=days)).date().isoformat()
     body = {"filter": {"property": P_DATE, "date": {"before": cutoff}}, "page_size": 100}
     total = 0
     while True:
-        res = http_json(f"{NOTION_API}/databases/{db_id}/query", "POST", notion_headers(token), body)
+        res = http_json(f"{NOTION_API}/data_sources/{ds_id}/query", "POST", notion_headers(token), body)
         for page in res.get("results", []):
             if page.get("archived"):
                 continue
@@ -231,6 +247,9 @@ def main():
     if missing:
         sys.exit("환경변수가 없습니다: " + ", ".join(missing))
 
+    ds_id = notion_get_data_source_id(token, db_id)
+    print(f"Notion 데이터 소스 ID: {ds_id}")
+
     print(f"수집 시작: 최근 30시간, 검색어 {sum(len(v) for v in KEYWORDS.values())}개")
     items = collect(cid, secret, hours=30)
     print(f"중복 제거 후 후보 {len(items)}건")
@@ -238,10 +257,10 @@ def main():
     saved = skipped = failed = 0
     for it in items:
         try:
-            if notion_exists(token, db_id, it["link"]):
+            if notion_exists(token, ds_id, it["link"]):
                 skipped += 1
             else:
-                notion_create(token, db_id, it)
+                notion_create(token, ds_id, it)
                 saved += 1
         except RuntimeError as e:
             failed += 1
@@ -249,7 +268,7 @@ def main():
         time.sleep(0.35)
     print(f"완료: 저장 {saved}건, 이미 있음 {skipped}건, 실패 {failed}건")
 
-    archived = notion_archive_older_than(token, db_id, RETENTION_DAYS)
+    archived = notion_archive_older_than(token, ds_id, RETENTION_DAYS)
     if archived:
         print(f"{RETENTION_DAYS}일 지난 행 {archived}건을 보관 처리했습니다 (약관상 최대 보관기간 준수).")
 
