@@ -15,6 +15,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: DEBUG - inspect NOTION_DATABASE_ID shape (no plaintext)
+        env:
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          v = os.environ.get("NOTION_DATABASE_ID", "")
+          print("len:", len(v))
+          print("repr of first 4 / last 4 chars:", repr(v[:4]), repr(v[-4:]))
+          print("has whitespace:", v != v.strip())
+          print("dash count:", v.count("-"))
+          print("all hex after dash-strip:", v.replace("-", "").isalnum())
+          PYEOF
       - name: Run collector
         env:
           NCP_APIHUB_CLIENT_ID: ${{ secrets.NCP_APIHUB_CLIENT_ID }}
