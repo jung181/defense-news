@@ -52,26 +52,49 @@ KEYWORDS = {
 
 
 def http_json(url, method="GET", headers=None, body=None, retries=3):
+    """urllib.request 대신 http.client를 직접 사용한다.
+
+    urllib.request.Request는 내부적으로 헤더 이름에 str.capitalize()를
+    적용해 'X-NCP-APIGW-API-KEY-ID' 같은 멀티-세그먼트 헤더를
+    'X-Ncp-Apigw-Api-Key-Id'로 바꿔서 전송한다 (로컬 테스트로 확인됨).
+    HTTP 스펙상 헤더 이름은 대소문자 무관이어야 하지만, 게이트웨이가
+    엄격하게 비교할 가능성을 배제하기 위해 대소문자를 그대로 보존하는
+    http.client를 사용한다.
+    """
+    import http.client
+    import ssl
+
     data = json.dumps(body).encode("utf-8") if body is not None else None
     hdrs = dict(headers or {})
     if data is not None:
         hdrs["Content-Type"] = "application/json"
+
+    parsed = urllib.parse.urlsplit(url)
+    path = parsed.path + (("?" + parsed.query) if parsed.query else "")
+
     last = None
     for attempt in range(retries):
-        req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
+        conn = None
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", errors="replace")[:300]
-            last = RuntimeError(f"HTTP {e.code} {url.split('?')[0]} :: {detail}")
-            if e.code == 429 or e.code >= 500:
-                time.sleep(1.5 * (attempt + 1))
-                continue
-            raise last
-        except urllib.error.URLError as e:
-            last = RuntimeError(f"네트워크 오류 {url.split('?')[0]} :: {e.reason}")
+            ctx = ssl.create_default_context()
+            conn = http.client.HTTPSConnection(parsed.netloc, timeout=30, context=ctx)
+            conn.request(method, path, body=data, headers=hdrs)
+            resp = conn.getresponse()
+            raw = resp.read()
+            if resp.status >= 400:
+                detail = raw.decode("utf-8", errors="replace")[:300]
+                last = RuntimeError(f"HTTP {resp.status} {url.split('?')[0]} :: {detail}")
+                if resp.status == 429 or resp.status >= 500:
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                raise last
+            return json.loads(raw.decode("utf-8"))
+        except (OSError, http.client.HTTPException) as e:
+            last = RuntimeError(f"네트워크 오류 {url.split('?')[0]} :: {e}")
             time.sleep(1.5 * (attempt + 1))
+        finally:
+            if conn is not None:
+                conn.close()
     raise last
 
 
@@ -189,23 +212,7 @@ def notion_archive_older_than(token, db_id, days):
     return total
 
 
-def _debug_check_secrets():
-    import hashlib
-
-    expect = {
-        "NCP_APIHUB_CLIENT_ID": (10, "846aa312411d53787851a2a63dc8846e892c279a31e9b25b54a075947735b447"),
-        "NCP_APIHUB_CLIENT_SECRET": (40, "175482151efb02dd2752a80ba161dcaf892273eb0dfab83999ee5f50bdb471c2"),
-    }
-    for name, (elen, ehash) in expect.items():
-        v = os.environ.get(name, "")
-        h = hashlib.sha256(v.encode()).hexdigest()
-        ok = (len(v) == elen) and (h == ehash)
-        print(f"[debug] {name}: len={len(v)} (expect {elen}) match={ok}", file=sys.stderr)
-
-
 def main():
-    if os.environ.get("DEBUG_CHECK_SECRETS") == "1":
-        _debug_check_secrets()
     cid = os.environ.get("NCP_APIHUB_CLIENT_ID")
     secret = os.environ.get("NCP_APIHUB_CLIENT_SECRET")
     token = os.environ.get("NOTION_TOKEN")
