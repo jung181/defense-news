@@ -139,38 +139,39 @@ QUERY_ALT_TERMS = {
 }
 
 
+def _matches_core(text, query):
+    """정식 명칭(또는 전체 단어) 기준의 엄격한 매칭. 축약어는 보지 않는다."""
+    q = _norm_nospace(query)
+    words = query.split()
+    if len(words) == 1:
+        if q in text:
+            return True
+        return len(q) == 4 and (q[2:4] + q[0:2]) in text
+    return all(_norm_nospace(w) in text for w in words)
+
+
 def is_relevant(title, query, description=""):
     """제목(+네이버 요약 스니펫)이 검색어와 실제로 관련 있는지
-    기계적으로(AI 없이) 판단한다.
+    기계적으로(AI 없이) 판단한다. description은 판단에만 쓰고 어디에도
+    저장하지 않는다.
 
-    네이버 검색이 형태소 단위로 느슨하게 매칭해 무관한 기사가 섞여 들어오는
-    경우가 있어, 제목(그리고 네이버 API가 함께 주는 짧은 요약 설명)에
-    검색어(또는 그 축약어)가 실제로 포함됐는지 다시 한 번 확인한다.
-    description은 판단에만 쓰고 어디에도 저장하지 않는다.
-    다음 중 하나라도 맞으면 관련 있다고 본다:
-      1) 검색어 전체(공백 제거)가 들어있음
-      2) 검색어가 공백으로 나뉜 여러 단어라면, 그 단어들이 (순서 상관없이)
-         모두 들어있음 (예: "방산 수출" -> "방산"과 "수출" 각각 확인)
-      3) 검색어가 4글자 짜리 한 단어라면, 앞뒤 2글자를 뒤바꾼 형태도 확인
-         (예: "항공우주" -> "우주항공"도 인정)
-      4) QUERY_ALT_TERMS에 등록된 축약어 중 하나가 들어있음
+    네이버 검색 스니펫은 검색어를 거의 항상 포함하고 있어서(네이버 자체
+    매칭 결과이므로), description까지 축약어 허용 기준으로 보면 필터가
+    사실상 무력화된다 (실측: 30시간 윈도우 기준 신규 후보가 11건 -> 92건
+    으로 급증). 그래서 기준을 둘로 나눈다:
+      - 제목: 정식 명칭이 그대로 있거나, QUERY_ALT_TERMS에 등록된 뉴스
+        제목 관용 축약어(예: "방위산업"->"방산")가 있으면 관련 있다고 본다.
+      - 설명(description): 축약어는 보지 않고, 정식 명칭이 그대로 들어있을
+        때만 관련 있다고 본다 (설명문은 제목과 달리 줄여 쓸 이유가 적다).
     """
-    t = _norm_nospace(title) + _norm_nospace(description)
-    words = query.split()
-
-    if len(words) == 1:
-        q = _norm_nospace(query)
-        if q in t:
-            return True
-        if len(q) == 4 and (q[2:4] + q[0:2]) in t:
-            return True
-    elif all(_norm_nospace(w) in t for w in words):
+    t_title = _norm_nospace(title)
+    if _matches_core(t_title, query):
         return True
-
     for alt in QUERY_ALT_TERMS.get(query, []):
-        if _norm_nospace(alt) in t:
+        if _norm_nospace(alt) in t_title:
             return True
-    return False
+
+    return _matches_core(_norm_nospace(description), query)
 
 
 def search_news(query, client_id, client_secret, display=15):
