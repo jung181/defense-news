@@ -21,5 +21,4 @@ jobs:
           NCP_APIHUB_CLIENT_SECRET: ${{ secrets.NCP_APIHUB_CLIENT_SECRET }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
-          DEBUG_SKIPPED: "1"
         run: python3 scripts/collect_naver.py

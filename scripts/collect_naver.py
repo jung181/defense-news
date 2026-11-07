@@ -216,8 +216,6 @@ def collect(client_id, client_secret, hours=30):
                 description = clean_title(it.get("description"))
                 if not is_relevant(title, q, description):
                     skipped_irrelevant += 1
-                    if os.environ.get("DEBUG_SKIPPED"):
-                        print(f"    [제외:{q}] {title}", file=sys.stderr)
                     continue
                 norm = re.sub(r"\W+", "", title)[:TITLE_DEDUPE_CHARS]
                 if link in seen_links or norm in seen_titles:
