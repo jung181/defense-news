@@ -126,17 +126,31 @@ def _norm_nospace(text):
     return re.sub(r"[\s,.…·\"'\(\)\[\]<>“”‘’]+", "", text or "")
 
 
+# 한국 뉴스 제목은 공식 명칭을 거의 항상 줄여 쓴다(예: "방위산업"→"방산",
+# "방위사업청"→"방사청"). 이 목록은 실제 수집 결과를 보고 보강한
+# 수작업 축약어 매핑이다 (AI 추론이 아니라 고정된 표/문자열 비교).
+QUERY_ALT_TERMS = {
+    "방위산업": ["방산"],
+    "방위사업청": ["방사청", "방위사업청"],
+    "무기체계 개발": ["무기체계", "신무기"],
+    "항공우주": ["우주항공"],
+    "우주발사체": ["발사체"],
+    "위성 발사": ["위성", "발사체", "로켓 발사"],
+}
+
+
 def is_relevant(title, query):
     """제목이 검색어와 실제로 관련 있는지 기계적으로(AI 없이) 판단한다.
 
     네이버 검색이 형태소 단위로 느슨하게 매칭해 무관한 기사가 섞여 들어오는
-    경우가 있어, 제목에 검색어가 실제로 포함됐는지 다시 한 번 확인한다.
-    다음 중 하나라도 맞으면 관련 있다고 본다:
+    경우가 있어, 제목에 검색어(또는 그 축약어)가 실제로 포함됐는지 다시 한
+    번 확인한다. 다음 중 하나라도 맞으면 관련 있다고 본다:
       1) 검색어 전체(공백 제거)가 제목에 그대로 들어있음
       2) 검색어가 공백으로 나뉜 여러 단어라면, 그 단어들이 (순서 상관없이)
          모두 제목에 들어있음 (예: "방산 수출" -> "방산"과 "수출" 각각 확인)
       3) 검색어가 4글자 짜리 한 단어라면, 앞뒤 2글자를 뒤바꾼 형태도 확인
          (예: "항공우주" -> "우주항공"도 인정)
+      4) QUERY_ALT_TERMS에 등록된 축약어 중 하나가 제목에 들어있음
     """
     t = _norm_nospace(title)
     words = query.split()
@@ -147,9 +161,13 @@ def is_relevant(title, query):
             return True
         if len(q) == 4 and (q[2:4] + q[0:2]) in t:
             return True
-        return False
+    elif all(_norm_nospace(w) in t for w in words):
+        return True
 
-    return all(_norm_nospace(w) in t for w in words)
+    for alt in QUERY_ALT_TERMS.get(query, []):
+        if _norm_nospace(alt) in t:
+            return True
+    return False
 
 
 def search_news(query, client_id, client_secret, display=15):
