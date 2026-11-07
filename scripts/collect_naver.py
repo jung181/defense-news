@@ -139,20 +139,23 @@ QUERY_ALT_TERMS = {
 }
 
 
-def is_relevant(title, query):
-    """제목이 검색어와 실제로 관련 있는지 기계적으로(AI 없이) 판단한다.
+def is_relevant(title, query, description=""):
+    """제목(+네이버 요약 스니펫)이 검색어와 실제로 관련 있는지
+    기계적으로(AI 없이) 판단한다.
 
     네이버 검색이 형태소 단위로 느슨하게 매칭해 무관한 기사가 섞여 들어오는
-    경우가 있어, 제목에 검색어(또는 그 축약어)가 실제로 포함됐는지 다시 한
-    번 확인한다. 다음 중 하나라도 맞으면 관련 있다고 본다:
-      1) 검색어 전체(공백 제거)가 제목에 그대로 들어있음
+    경우가 있어, 제목(그리고 네이버 API가 함께 주는 짧은 요약 설명)에
+    검색어(또는 그 축약어)가 실제로 포함됐는지 다시 한 번 확인한다.
+    description은 판단에만 쓰고 어디에도 저장하지 않는다.
+    다음 중 하나라도 맞으면 관련 있다고 본다:
+      1) 검색어 전체(공백 제거)가 들어있음
       2) 검색어가 공백으로 나뉜 여러 단어라면, 그 단어들이 (순서 상관없이)
-         모두 제목에 들어있음 (예: "방산 수출" -> "방산"과 "수출" 각각 확인)
+         모두 들어있음 (예: "방산 수출" -> "방산"과 "수출" 각각 확인)
       3) 검색어가 4글자 짜리 한 단어라면, 앞뒤 2글자를 뒤바꾼 형태도 확인
          (예: "항공우주" -> "우주항공"도 인정)
-      4) QUERY_ALT_TERMS에 등록된 축약어 중 하나가 제목에 들어있음
+      4) QUERY_ALT_TERMS에 등록된 축약어 중 하나가 들어있음
     """
-    t = _norm_nospace(title)
+    t = _norm_nospace(title) + _norm_nospace(description)
     words = query.split()
 
     if len(words) == 1:
@@ -200,7 +203,9 @@ def collect(client_id, client_secret, hours=30):
                 title = clean_title(it.get("title"))
                 if not link or not title:
                     continue
-                if not is_relevant(title, q):
+                # description은 관련성 판단에만 쓰고 그 외에는 버린다(저장 안 함).
+                description = clean_title(it.get("description"))
+                if not is_relevant(title, q, description):
                     skipped_irrelevant += 1
                     continue
                 norm = re.sub(r"\W+", "", title)[:TITLE_DEDUPE_CHARS]
