@@ -5,6 +5,9 @@
 가공하지 않고 그대로 Notion에 저장한다. AI 요약·기자명·언론사는 여기서
 만들지 않는다 (별도 프로세스가 원문을 직접 읽어서 채운다).
 
+현재 수집 대상은 방산·항공우주 2개 분야다 (에너지·지정학은 2026-11-07
+사용자 요청으로 제외; 기존에 쌓인 에너지/지정학 행은 그대로 둔다).
+
 네이버 API HUB 약관상 응답 데이터의 서버 보관은 "이력 조회 목적"으로
 최대 21일까지만 허용되므로, 21일이 지난 행은 매 실행 시 자동으로
 보관(archive) 처리한다 (완전 삭제가 아니라 Notion 휴지통으로 이동).
@@ -45,12 +48,13 @@ P_QUERY = "검색어"  # rich_text
 
 KST = timezone(timedelta(hours=9))
 RETENTION_DAYS = 21  # 네이버 API HUB 약관: 이력 조회 목적 서버 보관 최대 21일
+# 같은 사건을 여러 언론사가 조금씩 다른 제목으로 보도하는 경우가 많아,
+# 제목 앞부분이 이 길이만큼 일치하면 같은 기사로 간주해 하나만 남긴다.
+TITLE_DEDUPE_CHARS = 20
 
 KEYWORDS = {
     "방산": ["방위산업", "방산 수출", "방위사업청", "무기체계 개발"],
     "항공우주": ["항공우주", "우주발사체", "위성 발사", "KF-21"],
-    "에너지": ["에너지 정책", "신재생에너지", "원전 SMR", "해상풍력"],
-    "지정학": ["지정학 리스크", "우크라이나 전쟁", "중동 정세", "미중 갈등"],
 }
 
 
@@ -117,7 +121,38 @@ def parse_pub(s):
         return None
 
 
-def search_news(query, client_id, client_secret, display=30):
+def _norm_nospace(text):
+    """공백/구두점만 제거 (단어 순서·글자는 그대로 유지)."""
+    return re.sub(r"[\s,.…·\"'\(\)\[\]<>“”‘’]+", "", text or "")
+
+
+def is_relevant(title, query):
+    """제목이 검색어와 실제로 관련 있는지 기계적으로(AI 없이) 판단한다.
+
+    네이버 검색이 형태소 단위로 느슨하게 매칭해 무관한 기사가 섞여 들어오는
+    경우가 있어, 제목에 검색어가 실제로 포함됐는지 다시 한 번 확인한다.
+    다음 중 하나라도 맞으면 관련 있다고 본다:
+      1) 검색어 전체(공백 제거)가 제목에 그대로 들어있음
+      2) 검색어가 공백으로 나뉜 여러 단어라면, 그 단어들이 (순서 상관없이)
+         모두 제목에 들어있음 (예: "방산 수출" -> "방산"과 "수출" 각각 확인)
+      3) 검색어가 4글자 짜리 한 단어라면, 앞뒤 2글자를 뒤바꾼 형태도 확인
+         (예: "항공우주" -> "우주항공"도 인정)
+    """
+    t = _norm_nospace(title)
+    words = query.split()
+
+    if len(words) == 1:
+        q = _norm_nospace(query)
+        if q in t:
+            return True
+        if len(q) == 4 and (q[2:4] + q[0:2]) in t:
+            return True
+        return False
+
+    return all(_norm_nospace(w) in t for w in words)
+
+
+def search_news(query, client_id, client_secret, display=15):
     params = urllib.parse.urlencode(
         {"query": query, "display": display, "start": 1, "sort": "date", "format": "json"}
     )
@@ -138,7 +173,7 @@ def collect(client_id, client_secret, hours=30):
             except RuntimeError as e:
                 print(f"[경고] '{q}' 검색 실패: {e}", file=sys.stderr)
                 continue
-            kept = 0
+            kept = skipped_irrelevant = 0
             for it in items:
                 pub = parse_pub(it.get("pubDate"))
                 if pub is None or pub.astimezone(timezone.utc) < cutoff:
@@ -147,7 +182,10 @@ def collect(client_id, client_secret, hours=30):
                 title = clean_title(it.get("title"))
                 if not link or not title:
                     continue
-                norm = re.sub(r"\W+", "", title)[:40]
+                if not is_relevant(title, q):
+                    skipped_irrelevant += 1
+                    continue
+                norm = re.sub(r"\W+", "", title)[:TITLE_DEDUPE_CHARS]
                 if link in seen_links or norm in seen_titles:
                     continue
                 seen_links.add(link)
@@ -162,7 +200,7 @@ def collect(client_id, client_secret, hours=30):
                     }
                 )
                 kept += 1
-            print(f"  [{field}] {q}: 신규 후보 {kept}건")
+            print(f"  [{field}] {q}: 신규 후보 {kept}건 (무관 제외 {skipped_irrelevant}건)")
             time.sleep(0.2)
     out.sort(key=lambda x: x["pub"], reverse=True)
     return out
