@@ -189,7 +189,23 @@ def notion_archive_older_than(token, db_id, days):
     return total
 
 
+def _debug_check_secrets():
+    import hashlib
+
+    expect = {
+        "NCP_APIHUB_CLIENT_ID": (10, "846aa312411d53787851a2a63dc8846e892c279a31e9b25b54a075947735b447"),
+        "NCP_APIHUB_CLIENT_SECRET": (40, "175482151efb02dd2752a80ba161dcaf892273eb0dfab83999ee5f50bdb471c2"),
+    }
+    for name, (elen, ehash) in expect.items():
+        v = os.environ.get(name, "")
+        h = hashlib.sha256(v.encode()).hexdigest()
+        ok = (len(v) == elen) and (h == ehash)
+        print(f"[debug] {name}: len={len(v)} (expect {elen}) match={ok}", file=sys.stderr)
+
+
 def main():
+    if os.environ.get("DEBUG_CHECK_SECRETS") == "1":
+        _debug_check_secrets()
     cid = os.environ.get("NCP_APIHUB_CLIENT_ID")
     secret = os.environ.get("NCP_APIHUB_CLIENT_SECRET")
     token = os.environ.get("NOTION_TOKEN")

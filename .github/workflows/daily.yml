@@ -17,6 +17,7 @@ jobs:
           python-version: "3.12"
       - name: Run collector
         env:
+          DEBUG_CHECK_SECRETS: "1"
           NCP_APIHUB_CLIENT_ID: ${{ secrets.NCP_APIHUB_CLIENT_ID }}
           NCP_APIHUB_CLIENT_SECRET: ${{ secrets.NCP_APIHUB_CLIENT_SECRET }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
