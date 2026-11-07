@@ -172,13 +172,25 @@ def notion_headers(token):
     return {"Authorization": f"Bearer {token}", "Notion-Version": NOTION_VERSION}
 
 
+def to_uuid(raw_id):
+    """대시 없는 32자리 ID를 표준 UUID(8-4-4-4-12) 형식으로 변환한다.
+
+    GET /v1/databases/{id} 같은 일부 Notion 엔드포인트는 대시가 없는 ID를
+    거부한다 (validation_error: "should be a valid uuid").
+    """
+    s = raw_id.replace("-", "")
+    if len(s) != 32:
+        return raw_id
+    return f"{s[0:8]}-{s[8:12]}-{s[12:16]}-{s[16:20]}-{s[20:32]}"
+
+
 def notion_get_data_source_id(token, db_id):
     """데이터베이스 ID로부터 실제 쿼리/생성에 쓸 데이터 소스 ID를 가져온다.
 
     2025-09-03 API부터 데이터베이스는 하나 이상의 '데이터 소스'를 가지며,
     쿼리와 페이지 생성은 데이터베이스 ID가 아니라 데이터 소스 ID를 사용해야 한다.
     """
-    res = http_json(f"{NOTION_API}/databases/{db_id}", "GET", notion_headers(token))
+    res = http_json(f"{NOTION_API}/databases/{to_uuid(db_id)}", "GET", notion_headers(token))
     sources = res.get("data_sources") or []
     if not sources:
         raise RuntimeError(f"데이터베이스 {db_id}에 데이터 소스가 없습니다: {res}")
