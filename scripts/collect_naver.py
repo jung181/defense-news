@@ -54,6 +54,8 @@ RETENTION_DAYS = 21  # 네이버 API HUB 약관: 이력 조회 목적 서버 보
 # 같은 사건을 여러 언론사가 조금씩 다른 제목으로 보도하는 경우가 많아,
 # 제목 앞부분이 이 길이만큼 일치하면 같은 기사로 간주해 하나만 남긴다.
 TITLE_DEDUPE_CHARS = 20
+# 검색어별 하루 최대 저장 건수 (최신순으로 앞에서부터)
+MAX_PER_QUERY = 5
 
 KEYWORDS = {
     "방산": [
@@ -206,10 +208,12 @@ def collect(client_id, client_secret, hours=30):
                 continue
             kept = skipped_irrelevant = 0
             for it in items:
+                if kept >= MAX_PER_QUERY:
+                    break
                 pub = parse_pub(it.get("pubDate"))
                 if pub is None or pub.astimezone(timezone.utc) < cutoff:
                     continue
-                link = it.get("link") or it.get("originallink")
+                link = it.get("originallink") or it.get("link")
                 title = clean_title(it.get("title"))
                 if not link or not title:
                     continue
