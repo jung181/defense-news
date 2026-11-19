@@ -2,9 +2,9 @@ name: Daily NAVER news collection
 
 on:
   schedule:
-    # 20:30 UTC = 05:30 KST (Claude 쪽 보강 작업이 06:00 KST에 돌 때
-    # 이미 원시 데이터가 Notion에 들어가 있도록 30분 먼저 실행)
-    - cron: "30 20 * * *"
+    # 19:13 UTC = 04:13 KST. GitHub 예약 실행이 몇 시간씩 밀리는 경우가 많아
+    # 일찍 걸어둔다. Claude 쪽 요약 작업은 13:17 KST에 실행된다.
+    - cron: "13 19 * * *"
   workflow_dispatch: {}
 
 jobs:
